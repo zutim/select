@@ -304,3 +304,9 @@ func (d *Downloader) saveRecords(fileName string, records []Record) {
 	}
 	writer.Flush()
 }
+
+// ReadStockCSV 读取股票CSV数据
+func (d *Downloader) ReadStockCSV(code string) ([]Record, error) {
+	fileName := filepath.Join(d.dataDir, "daily_data", code+".csv")
+	return d.readRecords(fileName)
+}

@@ -62,21 +62,45 @@ func (s *StockSelector) Run(targetDate string) ([]SelectedStock, error) {
 
 	// 1. Get Trading Dates
 	{
-		tradingDates, err := s.getTradingDates()
+		tradingDates, err := s.GetTradingDates()
 		if err != nil {
 			return nil, err
 		}
 
-		var prevDate, prev2Date string
+		fmt.Println("Trading Dates: %v", tradingDates)
+
+		// 查找目标日期或最接近的交易日
+		// tradingDates 是按日期降序排列的（最新的日期在前）[2026-01-25, 2026-01-23, ...]
+		var targetDateIndex = -1
+		targetDateParsed, _ := time.Parse("2006-01-02", targetDate)
+
+		// 遍历交易日期，找到目标日期在列表中的位置或最接近的位置
 		for i, d := range tradingDates {
-			if d == targetDate {
-				if i+1 < len(tradingDates) {
-					prevDate = tradingDates[i+1]
-				}
-				if i+2 < len(tradingDates) {
-					prev2Date = tradingDates[i+2]
-				}
+			dParsed, _ := time.Parse("2006-01-02", d)
+			if dParsed.Equal(targetDateParsed) {
+				// 目标日期正好是交易日
+				targetDateIndex = i
 				break
+			} else if dParsed.Before(targetDateParsed) {
+				// 如果当前交易日早于目标日期，这可能就是要找的交易日
+				// 但我们应该继续查找，直到遇到晚于目标日期的交易日，
+				// 或者找到最接近的早于目标日期的交易日
+				targetDateIndex = i
+				break // 找到第一个早于目标日期的交易日，这就是最接近的
+			}
+			// 如果当前交易日晚于目标日期，继续寻找
+		}
+
+		fmt.Println("Target Date: %s", targetDateIndex)
+		var prevDate, prev2Date string
+		if targetDateIndex != -1 {
+			// prevDate 是最接近目标日期的前一个交易日
+			if targetDateIndex >= 0 {
+				prevDate = tradingDates[targetDateIndex+1]
+			}
+			// prev2Date 是前一个交易日的下一个交易日（即更早的交易日）
+			if targetDateIndex+1 < len(tradingDates) {
+				prev2Date = tradingDates[targetDateIndex+2]
 			}
 		}
 
@@ -154,7 +178,7 @@ func (s *StockSelector) isEligible(code string) bool {
 	return true
 }
 
-func (s *StockSelector) getTradingDates() ([]string, error) {
+func (s *StockSelector) GetTradingDates() ([]string, error) {
 	dailyDir := filepath.Join(s.dataDir, "daily_data")
 	files, _ := os.ReadDir(dailyDir)
 	for _, f := range files {
@@ -166,7 +190,19 @@ func (s *StockSelector) getTradingDates() ([]string, error) {
 					dates = append(dates, r.Date.Format("2006-01-02"))
 				}
 				sort.Slice(dates, func(i, j int) bool { return dates[i] > dates[j] })
-				return dates, nil
+				// 过滤掉非交易日（周末）
+				var tradingDates []string
+				for _, dateStr := range dates {
+					date, err := time.Parse("2006-01-02", dateStr)
+					if err != nil {
+						continue
+					}
+					// 跳过周六(6)和周日(0)
+					if date.Weekday() != time.Saturday && date.Weekday() != time.Sunday {
+						tradingDates = append(tradingDates, dateStr)
+					}
+				}
+				return tradingDates, nil
 			}
 		}
 	}
@@ -174,6 +210,9 @@ func (s *StockSelector) getTradingDates() ([]string, error) {
 }
 
 func (s *StockSelector) generatePoolData(target, prev, prev2 string) PoolData {
+	fmt.Println("Generating pool data for %s...", target)
+	fmt.Println("Previous trading date: %s", prev)
+	fmt.Println("Previous 2 trading date: %s", prev2)
 	dailyDir := filepath.Join(s.dataDir, "daily_data")
 	files, _ := os.ReadDir(dailyDir)
 

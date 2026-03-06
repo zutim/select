@@ -8,6 +8,7 @@ import (
 	"unified_quant_system/data_manager"
 	"unified_quant_system/selector"
 	"unified_quant_system/tdx_integration"
+	"unified_quant_system/web_ui" // 新增web_ui包
 
 	"github.com/gin-gonic/gin"
 )
@@ -116,6 +117,9 @@ func main() {
 			"stocks": results,
 		})
 	})
+
+	// 初始化Web UI
+	web_ui.StartWebServer(r, stockSelector, downloader)
 
 	fmt.Println("Unified Quant System starting on :8081")
 	r.Run(":8081")
