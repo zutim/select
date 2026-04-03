@@ -171,10 +171,29 @@ RUN_STRATEGIES:
 }
 
 func (s *StockSelector) isEligible(code string) bool {
-	// 仿照 stock_selector.go 只过滤科创板(68), 北交所(4, 8)
-	if strings.HasPrefix(code, "4") || strings.HasPrefix(code, "8") || strings.HasPrefix(code, "68") {
+	// 过滤科创板 (68), 北交所 (4, 8), 创业板 (30)
+	if strings.HasPrefix(code, "4") || strings.HasPrefix(code, "8") || strings.HasPrefix(code, "68") || strings.HasPrefix(code, "30") {
 		return false
 	}
+	return true
+}
+
+// filterSTAndPaused 过滤 ST、*ST、退字股票和停牌股票
+func (s *StockSelector) filterSTAndPaused(code string) bool {
+	s.mu.RLock()
+	mc, ok := s.marketCaps[code]
+	s.mu.RUnlock()
+
+	if !ok {
+		return false // 没有市值数据的股票也过滤掉
+	}
+
+	name := mc.Name
+	// 检查是否包含 ST、*ST、退字
+	if strings.Contains(name, "ST") || strings.Contains(name, "st") || strings.Contains(name, "退") {
+		return false
+	}
+
 	return true
 }
 
@@ -232,8 +251,16 @@ func (s *StockSelector) generatePoolData(target, prev, prev2 string) PoolData {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			code := strings.TrimSuffix(fname, ".csv")
-			records, _ := s.readStockCSV(code)
-			if len(records) < 2 {
+			// 第一重过滤：代码前缀过滤（科创板、北交所、创业板）
+			if !s.isEligible(code) {
+				return
+			}
+			records, err := s.readStockCSV(code)
+			if err != nil || len(records) < 2 {
+				return
+			}
+			// 第二重过滤：ST、*ST、退字股票过滤
+			if !s.filterSTAndPaused(code) {
 				return
 			}
 
@@ -720,6 +747,7 @@ func (s *StockSelector) checkLeftPressure(records []StockRecord, prevIdx int, pr
 			maxPrevVol = convertedVolume
 		}
 	}
+	fmt.Println("maxPrevVol:", maxPrevVol, "prevVolume:", prevVolume)
 	result := maxPrevVol == 0 || prevVolume > maxPrevVol*0.9
 	return result
 }
